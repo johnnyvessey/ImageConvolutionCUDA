@@ -26,8 +26,8 @@ public:
 
 	void Start();
 	void Stop();
-	void GetTime(const char* message);
-
+	void PrintTime(const char* message);
+	float GetTime();
 	~CudaTiming();
 };
 
@@ -57,10 +57,19 @@ void CudaTiming::Stop()
 	check(cudaEventSynchronize(stop));
 }
 
-void CudaTiming::GetTime(const char* message)
+void CudaTiming::PrintTime(const char* message)
 {
 	float elapsedTime;
 	check(cudaEventElapsedTime(&elapsedTime,
 		start, stop));
 	std::cout << message << ": " << elapsedTime << " ms\n";
+}
+
+float CudaTiming::GetTime()
+{
+	float elapsedTime;
+	check(cudaEventElapsedTime(&elapsedTime,
+		start, stop));
+
+	return elapsedTime;
 }

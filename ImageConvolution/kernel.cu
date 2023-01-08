@@ -10,6 +10,9 @@
 #include "CudaTiming.cuh"
 
 #include "cuda_profiler_api.h"
+#include <cuda_fp16.h>
+#include <random>
+
 using std::vector;
 
 #define CONV_SIDE_LENGTH 49
@@ -23,6 +26,7 @@ __constant__ float constantConv[CONV_SIDE_LENGTH * CONV_SIDE_LENGTH];
 
 __device__ unsigned char clamp(float sum)
 {
+    //return (sum >= 255) * 255 + (sum > 0 && sum < 255) * static_cast<unsigned char>(sum);
     if (sum >= 255)
     {
         return 255;
@@ -45,12 +49,7 @@ __global__ void Convolve(unsigned char* out, unsigned char* pixels, int width, i
     int col_offset = CONV_SIDE_LENGTH / 2;
     int row_offset = CONV_SIDE_LENGTH / 2;
 
-    if (color == 3)
-    {
-        out[(row * width + col) * 4 + color] = 255;
-    }
-    else
-    {
+    
         float sum = 0.0;
 
         for (int i = row - row_offset; i <= row + row_offset; i++)
@@ -78,11 +77,11 @@ __global__ void Convolve(unsigned char* out, unsigned char* pixels, int width, i
        
 
         out[idx] = clamp(sum);
-    }
+    
 
 }
 
-__global__ void ConvolveSharedMemory(unsigned char* out, unsigned char* pixels, int width, int height)
+__global__ void ConvolveSharedMemory(unsigned char* out, const unsigned char* pixels, const int width, const int height)
 {
 
     int row = blockIdx.y * BLOCK_Y + threadIdx.y;
@@ -125,7 +124,7 @@ __global__ void ConvolveSharedMemory(unsigned char* out, unsigned char* pixels, 
 
     __syncthreads();
 
-    //set alpha to full value
+    //set alpha to max value
     if (color == 3)
     {
         out[idx] = 255;
@@ -150,141 +149,69 @@ __global__ void ConvolveSharedMemory(unsigned char* out, unsigned char* pixels, 
 }
 
 
-
-__global__ void ConvolveSharedMemory(unsigned char* out, unsigned char* pixels, int width, int height)
+__global__ void ConvolveSharedMemory1D(unsigned char* out, unsigned char* pixels, int  width, int height)
 {
 
-    int row = blockIdx.y * BLOCK_Y + threadIdx.y;
-    int col = blockIdx.x * BLOCK_X + threadIdx.x;
-    int color = threadIdx.z;
+    //int global_threadIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    int idx = (row * width + col) * 4 + color;
-    if (idx >= width * height * BLOCK_Z) return;
+    //if (global_threadIdx >= width * height * BLOCK_Z) return;
 
-    int convOffset = CONV_SIDE_LENGTH / 2;
+    //int convOffset = CONV_SIDE_LENGTH / 2;
 
-    const int shared_block_width = BLOCK_X + CONV_SIDE_LENGTH - 1;
-    const int shared_block_height = BLOCK_Y + CONV_SIDE_LENGTH - 1;
-    const int shared_block_size = shared_block_width * shared_block_height;
+    //const int shared_block_width =  BLOCK_X + CONV_SIDE_LENGTH - 1;
+    //const int shared_block_height = BLOCK_Y + CONV_SIDE_LENGTH - 1;
+    //const int shared_block_size = shared_block_width * shared_block_height * BLOCK_Z;
 
-    __shared__ unsigned char shared_block[shared_block_height * shared_block_width * BLOCK_Z];
+    //int color = global_threadIdx % 4;
+    //__shared__ unsigned char shared_block[shared_block_size];
 
-    //set shared memory
-    int sub_pixel_idx = threadIdx.y * blockDim.x + threadIdx.x;
+    ////set shared memory
+    //int sub_idx = threadIdx.x;
 
-    while (sub_pixel_idx < shared_block_size)
-    {
-        int x = sub_pixel_idx % shared_block_width;
-        int y = sub_pixel_idx / shared_block_width;
+    //while (sub_idx < shared_block_size)
+    //{
+    //    int x = (sub_idx / 4) % shared_block_width;
+    //    int y = (sub_idx / 4) / shared_block_width;
 
-        int x_global = (x - convOffset) + blockIdx.x * BLOCK_X;
-        int y_global = (y - convOffset) + blockIdx.y * BLOCK_Y;
+    //    int x_global = (x - convOffset) + blockIdx.x * BLOCK_X;
+    //    int y_global = (y - convOffset) + blockIdx.y * BLOCK_Y;
 
-        if (x_global >= 0 && y_global >= 0 && x_global < width && y_global < height)
-        {
-            shared_block[(y * shared_block_width + x) * BLOCK_Z + color] = pixels[(y_global * width + x_global) * 4 + color];
-        }
-        else
-        {
-            shared_block[(y * shared_block_width + x) * BLOCK_Z + color] = 0;
-        }
+    //    if (x_global >= 0 && y_global >= 0 && x_global < width && y_global < height)
+    //    {
+    //        shared_block[(x * shared_block_width + y) + color] = pixels[];
+    //    }
+    //    else
+    //    {
+    //        shared_block[sub_idx + color] = 0;
+    //    }
 
-        sub_pixel_idx += BLOCK_X * BLOCK_Y;
-    }
+    //    sub_idx += shared_block_size;
+    //}
 
-    __syncthreads();
+    //__syncthreads();
 
-    //set alpha to full value
-    if (color == 3)
-    {
-        out[idx] = 255;
-    }
-    else
-    {
-        float sum = 0.0;
+    ////set alpha to full value
+    //if (color == 3)
+    //{
+    //    out[global_threadIdx] = 255;
+    //}
+    //else
+    //{
+    //    float sum = 0.0;
 
-        for (int i = 0; i < CONV_SIDE_LENGTH; i++)
-        {
-            for (int j = 0; j < CONV_SIDE_LENGTH; j++)
-            {
-                int idx = ((threadIdx.y + i) * shared_block_width + threadIdx.x + j) * BLOCK_Z + color;
-                sum += constantConv[i * CONV_SIDE_LENGTH + j] * shared_block[idx];
-            }
-        }
+    //    int block_row = threadIdx.x / shared_block_width;
+    //    int block_col = threadIdx.x / 
+    //    int location_idx = threadIdx.x / 4;
+    //    for (int i = 0; i < CONV_SIDE_LENGTH; i++)
+    //    {
+    //        for (int j = 0; j < CONV_SIDE_LENGTH; j++)
+    //        {
+    //            sum += constantConv[i * CONV_SIDE_LENGTH + j] * shared_block[];
+    //        }
+    //    }
 
-        out[idx] = clamp(sum);
-    }
-
-
-}
-
-
-
-
-
-__global__ void ConvolveSharedMemory1D(unsigned char* out, unsigned char* pixels, int width, int height)
-{
-
-    int global_threadIdx = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (global_threadIdx >= width * height * BLOCK_Z) return;
-
-    int convOffset = CONV_SIDE_LENGTH / 2;
-
-    const int shared_block_width = BLOCK_X + CONV_SIDE_LENGTH - 1;
-    const int shared_block_height = BLOCK_Y + CONV_SIDE_LENGTH - 1;
-    const int shared_block_size = shared_block_width * shared_block_height * BLOCK_Z;
-
-    int color = global_threadIdx % 4;
-    __shared__ unsigned char shared_block[shared_block_size];
-
-    //set shared memory
-    int sub_idx = threadIdx.x;
-
-    while (sub_idx < shared_block_size)
-    {
-        int x = (sub_idx / 4) % shared_block_width;
-        int y = (sub_idx / 4) / shared_block_width;
-
-        int x_global = (x - convOffset) + blockIdx.x * BLOCK_X;
-        int y_global = (y - convOffset) + blockIdx.y * BLOCK_Y;
-
-        if (x_global >= 0 && y_global >= 0 && x_global < width && y_global < height)
-        {
-            shared_block[(x * shared_block_width + y) + color] = pixels[global_threadIdx];
-        }
-        else
-        {
-            shared_block[sub_idx + color] = 0;
-        }
-
-        sub_idx += shared_block_size;
-    }
-
-    __syncthreads();
-
-    //set alpha to full value
-    if (color == 3)
-    {
-        out[global_threadIdx] = 255;
-    }
-    else
-    {
-        float sum = 0.0;
-
-        int block_row = threadIdx.x / shared_block_width;
-        int block_col = threadIdx.x / 
-        int location_idx = threadIdx.x / 4;
-        for (int i = 0; i < CONV_SIDE_LENGTH; i++)
-        {
-            for (int j = 0; j < CONV_SIDE_LENGTH; j++)
-            {
-                sum += constantConv[i * CONV_SIDE_LENGTH + j] * shared_block[];
-            }
-        }
-
-        out[global_threadIdx] = clamp(sum);
-    }
+    //    out[global_threadIdx] = clamp(sum);
+    //}
 
 }
 
@@ -309,16 +236,21 @@ vector<unsigned char> ConvolveImage(vector<unsigned char>& pixels, vector<float>
     dim3 pixelGrid((width + BLOCK_X - 1) / BLOCK_X, (height + BLOCK_Y - 1) / BLOCK_Y);
     dim3 subGrid(BLOCK_X, BLOCK_Y, BLOCK_Z);
 
-    CudaTiming kernelTiming;
-    kernelTiming.Start();
-    cudaProfilerStart();
-    ConvolveSharedMemory<<< pixelGrid, subGrid >>> (out, input, width, height);
-    //Convolve << < pixelGrid, subGrid >> > (out, input, width, height);
+    const size_t num_iter = 10;
+    float totalTime = 0.0f;
+    for (size_t i = 0; i < num_iter; i++)
+    {
+        CudaTiming kernelTiming;
+        kernelTiming.Start();
+        ConvolveSharedMemory << < pixelGrid, subGrid >> > (out, input, width, height);
+        //Convolve << < pixelGrid, subGrid >> > (out, input, width, height);
+        cudaProfilerStop();
+        kernelTiming.Stop();
+        totalTime += kernelTiming.GetTime();
+    }
 
-    cudaProfilerStop();
-    kernelTiming.Stop();
+    std::cout << "Avg time: " << totalTime / (float)num_iter << " ms\n";
 
-    kernelTiming.GetTime("Kernel Time");
 
     unsigned char* outputPointer = (unsigned char*)malloc(pixelCount * sizeof(unsigned char));
     check(cudaMemcpy(outputPointer, out, pixelCount * sizeof(unsigned char), cudaMemcpyDeviceToHost));
@@ -345,21 +277,27 @@ int main(void) {
     unsigned int height = 1024;
     lodepng::decode(pixels, width, height, "cat_image.png");
 
+
     vector<float> convolution(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH, 0);
 
+    for (int i = 0; i < convolution.size(); i++)
+    {
+        convolution[i] = (2.0f / (float)(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH)) * (float)rand() / (float)RAND_MAX;
+    }
     //identity
-    convolution[(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH) /2 ] = 1;
+    //convolution[(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH) / 2 ] = 1.1;
 
-    //convolution[25] = 2;
+    //convolution[25] = 2.3;
     //vector<float> convolution = { -1,-1,-1,-1,8,-1,-1,-1,-1 };
 
+   
     check(cudaMemcpyToSymbol(constantConv, convolution.data(), convolution.size() * sizeof(float)));
 
-    CudaTiming ct;
-    ct.Start();
+    //CudaTiming ct;
+   // ct.Start();
     vector<unsigned char> newImage = ConvolveImage(pixels, convolution, width, height, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH);
-    ct.Stop();
-    ct.GetTime("Total function time");
+    //ct.Stop();
+    //ct.PrintTime("Total function time");
 
     lodepng::encode("conv_image.png", newImage, width, height);
 

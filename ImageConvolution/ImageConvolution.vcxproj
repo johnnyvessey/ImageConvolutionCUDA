@@ -80,10 +80,13 @@
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="kernel.cu" />
+    <CudaCompile Include="CudaTiming.cu" />
+    <CudaCompile Include="main.cu" />
+    <CudaCompile Include="kernels.cu" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CudaTiming.cuh" />
+    <ClInclude Include="kernels.cuh" />
     <ClInclude Include="lodepng.h" />
   </ItemGroup>
   <ItemGroup>

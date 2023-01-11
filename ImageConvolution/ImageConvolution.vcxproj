@@ -95,6 +95,8 @@
   <ItemGroup>
     <Image Include="cat_image.png" />
     <Image Include="conv_image.png" />
+    <Image Include="conv_image_separable.png" />
+    <Image Include="conv_image_unseparable.png" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -26,22 +26,17 @@ vector<float> generate_gaussian_blur(int sideLength, float sigma)
     return gaussian_blur_convolution;
 }
 
-int main(void) {
-    vector<unsigned char> pixels;
+void CreateConvolvedImage(vector<float> convolution, std::string inputFilename, std::string filename)
+{
     unsigned int width = IMAGE_WIDTH; //required to make variables because lodepng takes width + height as references
     unsigned int height = IMAGE_HEIGHT;
-    lodepng::decode(pixels, width, height, "cat_image.png");
+    vector<unsigned char> pixels;
 
-    //large box blur
-    vector<float> box_blur_convolution(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH, 1.0f / (float)(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH));
+    lodepng::decode(pixels, width, height, inputFilename);
 
-    vector<float> gaussian_blur_convolution = generate_gaussian_blur(CONV_SIDE_LENGTH, (float)CONV_SIDE_LENGTH / 6);
-    //Add this to make the convolution non-separable
-    gaussian_blur_convolution[0] = .2;
-   
     CudaTiming ct;
     ct.Start();
-    unsigned char* newImage = ImageConvolution::ConvolveOptimized(pixels, gaussian_blur_convolution, IMAGE_WIDTH, IMAGE_HEIGHT, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH);
+    unsigned char* newImage = ImageConvolution::ConvolveOptimized(pixels, convolution, IMAGE_WIDTH, IMAGE_HEIGHT, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH);
     ct.Stop();
     ct.PrintTime("Total function time");
 
@@ -51,7 +46,24 @@ int main(void) {
         newImage[i] = 255;
     }
 
-    lodepng::encode("conv_image.png", newImage, width, height);
+    lodepng::encode(filename, newImage, width, height);
     free(newImage);
+}
+
+int main(void) {
+
+    //large box blur
+    vector<float> box_blur_convolution(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH, 1.0f / (float)(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH));
+
+    vector<float> gaussian_blur_convolution = generate_gaussian_blur(CONV_SIDE_LENGTH, (float)CONV_SIDE_LENGTH / 6);
+
+    CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image_separable.png");
+
+    std::cout << "\n\n\n";
+    //Add this to make the convolution non-separable
+    gaussian_blur_convolution[0] = .2;
+
+    CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image_unseparable.png");
+   
 
 }

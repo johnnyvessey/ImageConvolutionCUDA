@@ -564,9 +564,8 @@ vector<unsigned char> ImageConvolution::ConvolveImage(vector<unsigned char>& pix
         float* cudaConv;
         check(cudaMalloc((void**)&cudaConv, convHeight * convWidth * sizeof(float)));
         check(cudaMemcpy(cudaConv, convolution.data(), convHeight * convWidth * sizeof(float), cudaMemcpyHostToDevice));
-        NaiveConvolve << < pixelGrid, subGrid >> > (out, input, cudaConv, width, height);
+        Naive::NaiveConvolve << < pixelGrid, subGrid >> > (out, input, cudaConv, width, height);
         check(cudaFree(cudaConv));
-
     }
     else {
         BasicSharedMemory::ConvolveSharedMemory << < pixelGrid, subGrid >> > (out, input, width, height);

@@ -538,7 +538,7 @@ namespace Optimized
 };
 
 
-vector<unsigned char> ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive)
+unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive)
 {
     check(cudaMemcpyToSymbol(constantConv, convolution.data(), convolution.size() * sizeof(float)));
 
@@ -579,18 +579,11 @@ vector<unsigned char> ImageConvolution::ConvolveImage(vector<unsigned char>& pix
 
     check(cudaFree(input));
 
-    vector<unsigned char> outputPixels;
-    outputPixels.reserve(pixelCount);
+    
 
-    for (int i = 0; i < pixelCount; i++)
-    {
-        outputPixels.push_back(outputPointer[i]);
-    }
-
-    free(outputPointer);
     check(cudaFree(out));
 
-    return outputPixels;
+    return outputPointer;
 }
 
 

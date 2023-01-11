@@ -26,7 +26,8 @@ vector<float> generate_gaussian_blur(int sideLength, float sigma)
     return gaussian_blur_convolution;
 }
 
-void CreateConvolvedImage(vector<float> convolution, std::string inputFilename, std::string filename)
+//make sure convolution.size() is the same as CONV_SIDE_LENGTH * CONV_SIDE_LENGTH
+void CreateConvolvedImage(vector<float> convolution, std::string inputFilename, std::string filename, bool optimized = true, bool naive = false)
 {
     unsigned int width = IMAGE_WIDTH; //required to make variables because lodepng takes width + height as references
     unsigned int height = IMAGE_HEIGHT;
@@ -36,7 +37,10 @@ void CreateConvolvedImage(vector<float> convolution, std::string inputFilename, 
 
     CudaTiming ct;
     ct.Start();
-    unsigned char* newImage = ImageConvolution::ConvolveOptimized(pixels, convolution, IMAGE_WIDTH, IMAGE_HEIGHT, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH);
+    
+    unsigned char* newImage;
+    if(optimized) newImage = ImageConvolution::ConvolveOptimized(pixels, convolution, IMAGE_WIDTH, IMAGE_HEIGHT, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH);
+    else newImage = ImageConvolution::ConvolveImage(pixels, convolution, IMAGE_WIDTH, IMAGE_HEIGHT, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH, naive);
     ct.Stop();
     ct.PrintTime("Total function time");
 
@@ -48,22 +52,31 @@ void CreateConvolvedImage(vector<float> convolution, std::string inputFilename, 
 
     lodepng::encode(filename, newImage, width, height);
     free(newImage);
+
 }
 
 int main(void) {
 
     //large box blur
     vector<float> box_blur_convolution(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH, 1.0f / (float)(CONV_SIDE_LENGTH * CONV_SIDE_LENGTH));
-
     vector<float> gaussian_blur_convolution = generate_gaussian_blur(CONV_SIDE_LENGTH, (float)CONV_SIDE_LENGTH / 6);
 
+    std::cout << "Separable Optimized Convolution:\n";
     CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image_separable.png");
 
-    std::cout << "\n\n\n";
     //Add this to make the convolution non-separable
     gaussian_blur_convolution[0] = .2;
-
+    std::cout << "\n------------------------\n\nNon-separable Optimized Convolution:\n";
     CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image_unseparable.png");
+
+    std::cout << "\n------------------------\n\nBasic Shared Memory Convolution:\n";
+    CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image.png", false, false);
+
+    std::cout << "\n------------------------\n\nNaive Convolution:\n";
+    CreateConvolvedImage(gaussian_blur_convolution, "cat_image.png", "conv_image.png", false, true);
+
+
+
    
 
 }

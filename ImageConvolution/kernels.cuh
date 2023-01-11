@@ -36,7 +36,7 @@ class ImageConvolution
 {
 public:
 
-	static vector<unsigned char> ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive);
+	static unsigned char* ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive);
 
 	static unsigned char* ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight);
 

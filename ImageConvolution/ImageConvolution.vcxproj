@@ -77,6 +77,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <FastMath>true</FastMath>
+      <CodeGeneration>compute_53,sm_53</CodeGeneration>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -94,9 +95,11 @@
   </ItemGroup>
   <ItemGroup>
     <Image Include="cat_image.png" />
+    <Image Include="cat_image_large.png" />
     <Image Include="conv_image.png" />
     <Image Include="conv_image_separable.png" />
     <Image Include="conv_image_unseparable.png" />
+    <Image Include="sobel_image.png" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

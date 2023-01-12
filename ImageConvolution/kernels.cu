@@ -124,7 +124,49 @@ namespace ConvolutionSeparation
 
 namespace Naive
 {
-    __global__ void NaiveConvolve(unsigned char* out, unsigned char* pixels, float* cudaConv, int width, int height)
+    __global__ void NaiveConvolveConstantMemory(unsigned char* out, unsigned char* pixels, float* cudaConv, int width, int height)
+    {
+
+        int row = blockIdx.y * blockDim.y + threadIdx.y;
+        int col = blockIdx.x * blockDim.x + threadIdx.x;
+        int color = threadIdx.z;
+
+        int col_offset = CONV_SIDE_LENGTH / 2;
+        int row_offset = CONV_SIDE_LENGTH / 2;
+
+
+        float sum = 0.0;
+
+        for (int i = row - row_offset; i <= row + row_offset; i++)
+        {
+            if (i < 0 || i >= height)
+                continue;
+            for (int j = col - col_offset; j <= col + col_offset; j++)
+            {
+                if (j < 0 || j >= width)
+                    continue;
+                int convRow = i - (row - row_offset);
+                int convCol = j - (col - col_offset);
+                int convIdx = convRow * CONV_SIDE_LENGTH + convCol;
+
+
+                int pixelIdx = (i * width + j) * 4 + color;
+
+                unsigned char pixelVal = pixels[pixelIdx];
+                sum = sum + (constantConv[convIdx] * pixelVal);
+
+
+            }
+        }
+        int idx = (row * width + col) * 4 + color;
+
+
+        out[idx] = clamp(sum);
+
+
+    }
+
+    __global__ void NaiveConvolveNoConstantMemory(unsigned char* out, unsigned char* pixels, float* cudaConv, int width, int height)
     {
 
         int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -336,7 +378,7 @@ namespace BasicSharedMemory
 
 namespace Optimized
 {
-    __global__ void ConvolveHorizontalSplitUp(float* out, const unsigned char* __restrict__ pixels)
+    __global__ void ConvolveHorizontalSplitUp(half* out, const unsigned char* __restrict__ pixels)
     {
         int global_row = blockIdx.y;
         int global_col = blockIdx.x * H_BLOCK_X + threadIdx.x;
@@ -347,6 +389,7 @@ namespace Optimized
         int global_idx = 4 * (global_row * IMAGE_WIDTH + global_col);
         if (global_idx >= arrSize) return;
 
+        //faster if using float for shared memory (32 bit data type)
         __shared__ float tile[4 * (H_BLOCK_X + CONV_SIDE_LENGTH - 1)];
 
         int col = threadIdx.x;
@@ -394,15 +437,15 @@ namespace Optimized
 
         }
 
-        out[global_idx] = sumR;
-        out[global_idx + 1] = sumG;
-        out[global_idx + 2] = sumB;
-        out[global_idx + 3] = sumA;
+        out[global_idx] = __float2half(sumR);
+        out[global_idx + 1] = __float2half(sumG);
+        out[global_idx + 2] = __float2half(sumB);
+        out[global_idx + 3] = __float2half(sumA);
 
 
     }
 
-    __global__ void ConvolveVertical(unsigned char* out, const float* __restrict__ pixels)
+    __global__ void ConvolveVertical(unsigned char* out, const half* __restrict__ pixels)
     {
         int global_row = blockIdx.y * V_BLOCK_Y + threadIdx.y;
         int global_col = blockIdx.x * V_BLOCK_X + threadIdx.x;
@@ -413,7 +456,7 @@ namespace Optimized
         int global_idx = 4 * (global_row * IMAGE_WIDTH + global_col);
         if (global_idx >= arrSize) return;
 
-        __shared__ float tile[V_BLOCK_Y + CONV_SIDE_LENGTH - 1][4 * V_BLOCK_X];
+        __shared__ half tile[V_BLOCK_Y + CONV_SIDE_LENGTH - 1][4 * V_BLOCK_X];
 
         int row = threadIdx.y;
         int globalOffset = -4 * IMAGE_WIDTH * conv_offset;
@@ -432,10 +475,10 @@ namespace Optimized
             }
             else
             {
-                tile[row][tx4] = 0;
-                tile[row][tx4 + 1] = 0;
-                tile[row][tx4 + 2] = 0;
-                tile[row][tx4 + 3] = 0;
+                tile[row][tx4] =  0.0f;
+                tile[row][tx4 + 1] = 0.0f;
+                tile[row][tx4 + 2] = 0.0f;
+                tile[row][tx4 + 3] = 0.0f;
             }
 
 
@@ -445,19 +488,19 @@ namespace Optimized
 
         __syncthreads();
 
-        float sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+        half sumR = 0.0f, sumG = 0.0f, sumB = 0.0f, sumA = 0.0f;
 
         for (int i = 0; i < CONV_SIDE_LENGTH; i++)
         {
-            float conv = constantConv1d[i];
+            half conv = __float2half(constantConv1d[i]);
 
             int tile_row = threadIdx.y;
             int tile_col = threadIdx.x * 4;
 
-            sumR += (conv * tile[tile_row + i][tile_col]);
-            sumG += (conv * tile[tile_row + i][tile_col + 1]);
-            sumB += (conv * tile[tile_row + i][tile_col + 2]);
-            sumA += (conv * tile[tile_row + i][tile_col + 3]);
+            sumR = sumR + (conv * tile[tile_row + i][tile_col]);
+            sumG = sumG +(conv * tile[tile_row + i][tile_col + 1]);
+            sumB = sumB + (conv * tile[tile_row + i][tile_col + 2]);
+            sumA = sumA + (conv * tile[tile_row + i][tile_col + 3]);
 
         }
 
@@ -467,7 +510,7 @@ namespace Optimized
         out[global_idx + 3] = clamp(sumA);
     }
 
-    __global__ void ConvolveSharedMemoryUnseparableOptimized(unsigned char* out, const unsigned char* __restrict__ pixels)
+    __global__ void ConvolveSharedMemoryUnseparableOptimizedChar(unsigned char* out, const unsigned char* __restrict__ pixels)
     {
 
         int row = blockIdx.y * BLOCK_Y_UNSEPARABLE + threadIdx.y;
@@ -535,10 +578,199 @@ namespace Optimized
         out[global_idx + 3] = clamp(sumA);
     }
 
+    __global__ void ConvolveSharedMemoryUnseparableOptimizedInt(unsigned char* out, const unsigned char* __restrict__ pixels)
+    {
+
+        int row = blockIdx.y * BLOCK_Y_UNSEPARABLE + threadIdx.y;
+        int col = blockIdx.x * BLOCK_X_UNSEPARABLE + threadIdx.x;
+
+        int global_idx = (row * IMAGE_WIDTH + col) * 4;
+        if (global_idx >= IMAGE_WIDTH * IMAGE_HEIGHT * 4) return;
+
+        int convOffset = CONV_SIDE_LENGTH / 2;
+
+        const int shared_block_width = BLOCK_X_UNSEPARABLE + CONV_SIDE_LENGTH - 1;
+        const int shared_block_height = BLOCK_Y_UNSEPARABLE + CONV_SIDE_LENGTH - 1;
+        const int shared_block_size = shared_block_width * shared_block_height;
+
+        __shared__ int shared_block[shared_block_size * 4];
+
+        //set shared memory
+
+        for (int sub_pixel_idx = threadIdx.y * BLOCK_X_UNSEPARABLE + threadIdx.x; sub_pixel_idx < shared_block_size; sub_pixel_idx += (BLOCK_X_UNSEPARABLE * BLOCK_Y_UNSEPARABLE))
+        {
+            int x = sub_pixel_idx % shared_block_width;
+            int y = sub_pixel_idx / shared_block_width;
+
+            int x_global = (x - convOffset) + blockIdx.x * BLOCK_X_UNSEPARABLE;
+            int y_global = (y - convOffset) + blockIdx.y * BLOCK_Y_UNSEPARABLE;
+
+            if (x_global >= 0 && y_global >= 0 && x_global < IMAGE_WIDTH && y_global < IMAGE_HEIGHT)
+            {
+                shared_block[(y * shared_block_width + x) * 4] = pixels[(y_global * IMAGE_WIDTH + x_global) * 4];
+                shared_block[(y * shared_block_width + x) * 4 + 1] = pixels[(y_global * IMAGE_WIDTH + x_global) * 4 + 1];
+                shared_block[(y * shared_block_width + x) * 4 + 2] = pixels[(y_global * IMAGE_WIDTH + x_global) * 4 + 2];
+                shared_block[(y * shared_block_width + x) * 4 + 3] = pixels[(y_global * IMAGE_WIDTH + x_global) * 4 + 3];
+            }
+            else
+            {
+                shared_block[(y * shared_block_width + x) * 4] = 0;
+                shared_block[(y * shared_block_width + x) * 4 + 1] = 0;
+                shared_block[(y * shared_block_width + x) * 4 + 2] = 0;
+                shared_block[(y * shared_block_width + x) * 4 + 3] = 0;
+            }
+
+        }
+
+        __syncthreads();
+
+        float sumR = 0.0, sumG = 0.0, sumB = 0.0, sumA = 0.0;
+        for (int i = 0; i < CONV_SIDE_LENGTH; i++)
+        {
+            for (int j = 0; j < CONV_SIDE_LENGTH; j++)
+            {
+                float conv = constantConv[i * CONV_SIDE_LENGTH + j];
+                int shared_block_idx = ((threadIdx.y + i) * shared_block_width + threadIdx.x + j) * 4;
+
+                sumR += conv * shared_block[shared_block_idx];
+                sumG += conv * shared_block[shared_block_idx + 1];
+                sumB += conv * shared_block[shared_block_idx + 2];
+                sumA += conv * shared_block[shared_block_idx + 3];
+
+            }
+        }
+
+        out[global_idx] = clamp(sumR);
+        out[global_idx + 1] = clamp(sumG);
+        out[global_idx + 2] = clamp(sumB);
+        out[global_idx + 3] = clamp(sumA);
+    }
+
+
 };
 
+namespace Experimental
+{
+    __device__ pixel4 zeroPixel4()
+    {
+        pixel4 p4;
+#pragma unroll 4
+        for (int i = 0; i < 4; i++)
+        {
+            pixel p; p.R = 0; p.G = 0; p.B = 0; p.A = 0;
+            p4.pixels[i] = p;
+        }
+        return p4;
+    }
 
-unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive)
+    __global__ void ConvolveSharedMemoryUnseparableOptimizedPixel(pixel* out, const pixel4* __restrict__ pixels)
+    {
+
+        int row = blockIdx.y * BLOCK_Y_4_PIXEL + threadIdx.y;
+        int col = (blockIdx.x * BLOCK_X_4_PIXEL + threadIdx.x);
+        const int width = BLOCK_X_4_PIXEL + (CONV_SIDE_LENGTH - 1) / 4;
+
+        int global_idx = (row * IMAGE_WIDTH + 4 * col);
+        if (global_idx >= IMAGE_WIDTH * IMAGE_HEIGHT) return;
+
+        int convOffset = CONV_SIDE_LENGTH / 2;
+
+        const int shared_block_width = (4 * BLOCK_X_4_PIXEL + CONV_SIDE_LENGTH - 1);
+        const int shared_block_height = BLOCK_Y_4_PIXEL + CONV_SIDE_LENGTH - 1;
+        const int shared_block_size = shared_block_width * shared_block_height;
+        const int image_width = IMAGE_WIDTH / 4;
+
+
+        __shared__ pixel4 shared_block[shared_block_height][width];
+
+        //set shared memory
+
+        int sub_pixel_idx = BLOCK_X_4_PIXEL * threadIdx.y + threadIdx.x;
+
+        while (sub_pixel_idx < width * shared_block_height)
+        {
+            int x_idx = sub_pixel_idx % width;
+            int y_idx = sub_pixel_idx / width;
+            int y_global = (y_idx - convOffset) + blockIdx.y * BLOCK_Y_4_PIXEL;
+            int x_global = (x_idx - convOffset) + blockIdx.x * BLOCK_X_4_PIXEL;
+
+
+
+            if (x_global >= 0 && y_global >= 0 && x_global < image_width && y_global < IMAGE_HEIGHT)
+            {
+                shared_block[y_idx][x_idx] = pixels[y_global * image_width + x_global];
+            }
+            else {
+                shared_block[y_idx][x_idx] = zeroPixel4();
+            }
+
+            sub_pixel_idx += (BLOCK_Y_4_PIXEL * BLOCK_X_4_PIXEL);
+        }
+
+        __syncthreads();
+
+        float sumR[4] = { 0,0,0,0 };
+        float sumG[4] = { 0,0,0,0 };
+        float sumB[4] = { 0,0,0,0 };
+        float sumA[4] = { 0,0,0,0 };
+
+
+        for (int i = 0; i < CONV_SIDE_LENGTH; i++)
+        {
+            for (int j = 0; j < CONV_SIDE_LENGTH; j++)
+            {
+                float conv = constantConv[i * CONV_SIDE_LENGTH + j];
+
+                pixel pixel_buffer[8];
+
+                pixel4 left = shared_block[threadIdx.y + i][threadIdx.x + j / 4];
+#pragma unroll 4
+                for (int b_idx = 0; b_idx < 4; b_idx++)
+                {
+                    pixel_buffer[b_idx] = left.pixels[b_idx];
+                }
+                pixel4 right;
+                if (j % 4 != 0)
+                {
+                    right = shared_block[threadIdx.y + i][threadIdx.x + j / 4 + 1];
+#pragma unroll 4
+                    for (int b_idx = 4; b_idx < 8; b_idx++)
+                    {
+                        pixel_buffer[b_idx] = right.pixels[b_idx - 4];
+                    }
+                }
+
+#pragma unroll 4
+                for (int sub_thread = 0; sub_thread < 4; sub_thread++)
+                {
+                    sumR[sub_thread] += conv * pixel_buffer[sub_thread + (j % 4)].R;
+                    sumG[sub_thread] += conv * pixel_buffer[sub_thread + (j % 4)].G;
+                    sumB[sub_thread] += conv * pixel_buffer[sub_thread + (j % 4)].B;
+                    sumA[sub_thread] += conv * pixel_buffer[sub_thread + (j % 4)].A;
+
+                }
+
+            }
+        }
+
+
+
+#pragma unroll 4
+        for (int i = 0; i < 4; i++)
+        {
+            pixel p;
+            p.R = clamp(sumR[i]);
+            p.G = clamp(sumG[i]);
+            p.B = clamp(sumB[i]);
+            p.A = clamp(sumA[i]);
+            out[global_idx + i] = p;
+        }
+
+    }
+
+};
+
+unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive, bool useConstantMemory)
 {
     check(cudaMemcpyToSymbol(constantConv, convolution.data(), convolution.size() * sizeof(float)));
 
@@ -557,21 +789,32 @@ unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, ve
     dim3 subGrid(BLOCK_X, BLOCK_Y, BLOCK_Z);
 
 
-    CudaTiming kernelTiming;
-    kernelTiming.Start();
     if (naive)
     {
         float* cudaConv;
         check(cudaMalloc((void**)&cudaConv, convHeight * convWidth * sizeof(float)));
         check(cudaMemcpy(cudaConv, convolution.data(), convHeight * convWidth * sizeof(float), cudaMemcpyHostToDevice));
-        Naive::NaiveConvolve << < pixelGrid, subGrid >> > (out, input, cudaConv, width, height);
+        CudaTiming naiveKernelTiming;
+        naiveKernelTiming.Start();
+
+        if (useConstantMemory)
+        {
+            Naive::NaiveConvolveConstantMemory << < pixelGrid, subGrid >> > (out, input, cudaConv, width, height);
+        }
+        else {
+            Naive::NaiveConvolveNoConstantMemory << < pixelGrid, subGrid >> > (out, input, cudaConv, width, height);
+        }
         check(cudaFree(cudaConv));
+        naiveKernelTiming.Stop();
+        naiveKernelTiming.PrintTime("Kernel Time");
     }
     else {
+        CudaTiming basicKernelTiming;
+        basicKernelTiming.Start();
         BasicSharedMemory::ConvolveSharedMemory << < pixelGrid, subGrid >> > (out, input, width, height);
+        basicKernelTiming.Stop();
+        basicKernelTiming.PrintTime("Kernel Time");
     }
-    kernelTiming.Stop();
-    kernelTiming.PrintTime("Kernel Time");
 
 
     unsigned char* outputPointer = (unsigned char*)malloc(pixelCount * sizeof(unsigned char));
@@ -587,7 +830,7 @@ unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, ve
 }
 
 
-unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight)
+unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool useCharSharedMemory)
 {
     unsigned char* input;
     unsigned char* out;
@@ -597,7 +840,7 @@ unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels
     unsigned char* outputPointer = (unsigned char*)malloc(pixelCount * sizeof(unsigned char));
 
     int pixelsMemory = sizeof(unsigned char) * pixelCount;
-    int pixelsMemory_f = sizeof(float) * pixelCount;
+    int pixelsMemory_f = sizeof(half) * pixelCount;
 
     check(cudaMalloc((void**)&input, pixelsMemory));
     check(cudaMemcpy(input, pixels.data(), pixelsMemory, cudaMemcpyHostToDevice));
@@ -605,22 +848,15 @@ unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels
     vector<float> h_conv_vec;
     vector<float> v_conv_vec;
 
-    CudaTiming isSeparableTiming;
-    isSeparableTiming.Start();
 
     float* h_conv;
     float* v_conv;
 
     bool isSeparable = ConvolutionSeparation::isConvSeparable(convolution, CONV_SIDE_LENGTH, CONV_SIDE_LENGTH, h_conv_vec, v_conv_vec);
-
-    isSeparableTiming.Stop();
-    isSeparableTiming.PrintTime("Checking if conv is separable");
-
-    CudaTiming kernelTiming;
-    kernelTiming.Start();
+    
     if (isSeparable)
     {
-        float* pixels_f;
+        half* pixels_f;
         check(cudaMalloc((void**)&pixels_f, pixelsMemory_f));
 
         std::cout << "Convolution is separable\n\n";
@@ -631,7 +867,6 @@ unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels
         //horizontal convolution
         CudaTiming hTime;
         hTime.Start();
-        //ConvolveHorizontalRowPerBlock <<<IMAGE_HEIGHT, IMAGE_WIDTH>> > (pixels_f, input);
         dim3 horizontalGridDim = dim3((IMAGE_WIDTH + H_BLOCK_X - 1) / H_BLOCK_X, IMAGE_HEIGHT);
         Optimized::ConvolveHorizontalSplitUp << <horizontalGridDim, H_BLOCK_X >> > (pixels_f, input);
 
@@ -657,21 +892,31 @@ unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels
     else
     {
         std::cout << "Convolution is not separable\n\n";
-        check(cudaMalloc((void**)&out, pixelsMemory));
         check(cudaMemcpyToSymbol(constantConv, convolution.data(), convolution.size() * sizeof(float)));
-        dim3 pixelGrid((IMAGE_WIDTH + BLOCK_X - 1) / BLOCK_X, (IMAGE_HEIGHT + BLOCK_Y - 1) / BLOCK_Y);
-        //dim3 subGrid(BLOCK_X, BLOCK_Y, BLOCK_Z);
-        dim3 subGrid(BLOCK_X, BLOCK_Y);
-        //ConvolveSharedMemory << < pixelGrid, subGrid >> > (out, input, width, height);
-        Optimized::ConvolveSharedMemoryUnseparableOptimized<<< pixelGrid, subGrid >>>(out, input);
 
+        check(cudaMalloc((void**)&out, pixelsMemory));
+        dim3 pixelGrid((IMAGE_WIDTH + BLOCK_X - 1) / BLOCK_X, (IMAGE_HEIGHT + BLOCK_Y - 1) / BLOCK_Y);
+        dim3 subGrid(BLOCK_X, BLOCK_Y);
+
+        CudaTiming unseparablekernelTiming;
+        unseparablekernelTiming.Start();
+
+        if (useCharSharedMemory)
+        {
+            Optimized::ConvolveSharedMemoryUnseparableOptimizedChar <<< pixelGrid, subGrid >>> (out, input);
+        }
+        else {
+            Optimized::ConvolveSharedMemoryUnseparableOptimizedInt <<< pixelGrid, subGrid >>> (out, input);
+        }
+        unseparablekernelTiming.Stop();
+        unseparablekernelTiming.PrintTime("Kernel Time");
+
+        
         check(cudaMemcpy(outputPointer, out, pixelCount * sizeof(unsigned char), cudaMemcpyDeviceToHost));
         check(cudaFree(out));
     }
 
-    kernelTiming.Stop();
-    kernelTiming.PrintTime("Kernel Time");
-
+    
 
     check(cudaFree(input));
 

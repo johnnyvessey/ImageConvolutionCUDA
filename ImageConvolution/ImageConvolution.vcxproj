@@ -97,6 +97,10 @@
     <Image Include="cat_image.png" />
     <Image Include="cat_image_large.png" />
     <Image Include="conv_image.png" />
+    <Image Include="conv_image_basic_sm.png" />
+    <Image Include="conv_image_experimental.png" />
+    <Image Include="conv_image_naive_cm.png" />
+    <Image Include="conv_image_naive_no_cm.png" />
     <Image Include="conv_image_separable.png" />
     <Image Include="conv_image_unseparable.png" />
     <Image Include="sobel_image.png" />

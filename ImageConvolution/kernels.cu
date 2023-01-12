@@ -821,16 +821,13 @@ unsigned char* ImageConvolution::ConvolveImage(vector<unsigned char>& pixels, ve
     check(cudaMemcpy(outputPointer, out, pixelCount * sizeof(unsigned char), cudaMemcpyDeviceToHost));
 
     check(cudaFree(input));
-
-    
-
     check(cudaFree(out));
 
     return outputPointer;
 }
 
 
-unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool useCharSharedMemory)
+unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, bool useCharSharedMemory)
 {
     unsigned char* input;
     unsigned char* out;
@@ -923,3 +920,41 @@ unsigned char* ImageConvolution::ConvolveOptimized(vector<unsigned char>& pixels
     return outputPointer;
 }
 
+
+unsigned char* ImageConvolution::ConvolveOptimizedPixel4(vector<unsigned char>& pixels, vector<float>& convolution)
+{
+    pixel4* input;
+    pixel* out;
+
+
+    int pixelCount = pixels.size();
+    unsigned char* outputPointer = (unsigned char*)malloc(pixelCount * sizeof(unsigned char));
+
+    int pixelsMemory = sizeof(unsigned char) * pixelCount;
+
+    check(cudaMalloc((void**)&input, pixelsMemory));
+    check(cudaMemcpy(input, pixels.data(), pixelsMemory, cudaMemcpyHostToDevice));
+
+
+    check(cudaMemcpyToSymbol(constantConv, convolution.data(), convolution.size() * sizeof(float)));
+
+    check(cudaMalloc((void**)&out, pixelsMemory));
+    dim3 pixelGrid((IMAGE_WIDTH + (4 * BLOCK_X_4_PIXEL) - 1) / (4 * BLOCK_X_4_PIXEL), (IMAGE_HEIGHT + BLOCK_Y_4_PIXEL - 1) / BLOCK_Y_4_PIXEL);
+    dim3 subGrid(BLOCK_X, BLOCK_Y);
+
+    CudaTiming unseparablekernelTiming;
+    unseparablekernelTiming.Start();
+
+    Experimental::ConvolveSharedMemoryUnseparableOptimizedPixel << < pixelGrid, subGrid >> > (out, input);
+    
+    unseparablekernelTiming.Stop();
+    unseparablekernelTiming.PrintTime("Kernel Time");
+
+
+    check(cudaMemcpy(outputPointer, out, pixelCount * sizeof(unsigned char), cudaMemcpyDeviceToHost));
+
+    check(cudaFree(out));
+    check(cudaFree(input));
+
+    return outputPointer;
+}

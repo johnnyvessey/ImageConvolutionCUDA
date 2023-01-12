@@ -57,6 +57,7 @@ public:
 
 	static unsigned char* ConvolveImage(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool naive, bool useConstantMemory);
 
-	static unsigned char* ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, int width, int height, int convWidth, int convHeight, bool useChar = false);
+	static unsigned char* ConvolveOptimized(vector<unsigned char>& pixels, vector<float>& convolution, bool useChar = false);
 
+    static unsigned char* ConvolveOptimizedPixel4(vector<unsigned char>& pixels, vector<float>& convolution);
 };
